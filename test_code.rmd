@@ -8,7 +8,7 @@ author : "Anomalie statistique"
 
 
 
-
+**Chargement des données**
 
 ```{r, echo=TRUE}
 wolf<-read.csv("wolf_counts.csv", header = T, sep = ",")
@@ -17,4 +17,287 @@ wolf
 
 
 
-test de push_pull
+**Modèle des groupes sociaux** #(j'ai remarqué qu'il y a potentiellement une erreur dans l'article. Dans la descrption de la figure 1a, on dit prendre les équations 6 et 7, ce que j'ai fait ici, mais en réalité ils prennent l'équation 5 et 3 --> voir dans le code fourni par l'article)
+```{r, echo=TRUE}
+library(deSolve)
+#Conditions initiales
+g0<- 8 #taille de groupe initiale utilisée dans l'article (voir graphique 1a)
+G0<- 10 # nombre de groupe initial utilisé dans l'article (voir graphique 1a)
+b<- 0.63 #taux de natalité par individu 
+d<- 0.12 #taux de mortalité par individu
+f<- 0.08 #taux de fission
+gf<- 8 #taille critique 
+c<- 4 #taux de fusion
+e<- 0.02 #taux d'extinction de groupe 
+
+# Construction du modèle de base
+parms_core<- c(b=b, d=d, f=f, gf=gf, c=c, e=e)
+Core_Model_Dynamics <- function(t, vars, parms_core) {
+  with(as.list(c(vars, parms_core)), {
+    #Équation 5 
+    dg= g*(b-d)-(f*g^2)*(d/((gf+g)*(c+d)))-(e*G*g)
+    #Équation 3 
+    dG= (G*f*g^2*c)/((gf+g)*(c+d))-(e*G*G)
+    
+    
+    #Résultats
+    res<- c(dg=dg, dG=dG)
+    return(list(res))
+  })
+}
+
+#Dessiner la solution - Graphique 1A
+Graphique1A<- function(ic=c(g=g0, G=G0), tmax=21, times=seq(0, tmax, by=1), func, parms_core){
+  soln <- ode(ic, times, func, parms_core)
+  par(pty="s", pin=c(3,3)) #Pour que le graphique soit carré comme dans l'article 
+  plot(times, soln[, "g"], type="l", lty=3, ylim=c(5, 500),xlab="année", ylab= "effectif", main= "Modèle de base", log="y", yaxt="n",     lwd=3)                                                 # Taille des groupes 
+  axis(2, at = c(5, 10, 20, 50, 100, 200, 500), labels=c(5, 10, 20, 50, 100, 200, 500), las=2)
+  lines(times, soln[,"G"], lty=2, lwd=3)                 # Nombre de groupes 
+  lines (times, (soln[,"g"]*soln[,"G"]), lty=1, lwd=3)   #Population totale 
+  return(soln)} 
+
+  Graphique1A(func=Core_Model_Dynamics, parms=parms_core)
+
+#Dessiner la solution - Graphique 1B 
+
+  #Nullclines 
+
+    #On crée un vecteur avce les valeurs de g  
+       g_seq<- seq(0.1, 40, length.out=400)
+    
+    #Équation dg/dt=0 --> 0 = g*(b-d)-(f*g^2)*(d/((gf+g)*(c+d)))-(e*G*g)
+        #Factorise g : 0= g[ (b-d) - fgd/((gf+g)(c+d))-eG] --> nullcline possible à g=0 (pas celle recherchée)
+        # Isole G : G= [(b-d) - fgd/((gf+g)(c+d))]/e --> nullcline possible à G= [(b-d) - fgd/((gf+g)(c+d))]/e 
+    nullg <-  ((b-d) - f*g_seq*d/((gf+g_seq)*(c+d)))/e 
+    
+    #Équation dG/dt=0 --> 0 = (G*f*g^2*c)/((gf+g)*(c+d))-(a+e*G)*G
+        #Factorise G : 0= G[f*g^2*c/((gf+g)*(c+d))-(a+e*G)] -->nullcline possible à G=0 (pas celle recherchée)
+        # Isole G : G= [f*g^2*c/((gf+g)*(c+d))-a]/e --> nullcline possible à G = [f*g^2*c/((gf+g)*(c+d))-a]/e
+    nullG <- (f*g_seq^2*c/((gf+g_seq)*(c+d)))/e
+
+    
+  #Points de la trajectoire
+  Graphique1B<- function(ic=c(g=g0, G=G0), tmax=21, times=seq(0, tmax, by=1), func, parms_core){
+  soln <- ode(ic, times, func, parms_core)
+
+  par(pty="s", pin=c(3,3)) 
+  plot(soln[,"g"], soln[,"G"], xlab="taille de groupes (g)", ylab= "nombre de groupes (G)", main="Nullcline", col="blue", xlim=c(1,20), ylim=c(1,35), pch=19) #pch=19 pour points ronds et pleins 
+   
+     #Ajout des nullclines 
+      lines (g_seq, nullg, col="black", lty=3, lwd=2)
+      lines (g_seq, nullG, col="black", lty=2, lwd=2)
+     return(soln)} 
+
+Graphique1B(func=Core_Model_Dynamics, parms=parms_core)
+
+```
+
+
+
+
+
+
+**Modèle SIR**
+```{r, echo=TRUE}
+
+                                                          ################ PROBLÈME ICI
+#Conditions initiales 
+d<- 0.12 #taux de mortalité par individu
+f<- 0.01 #taux de fission
+gf<- 8 #taille critique 
+c<- 4 #taux de fusion
+e<- 0.001 #taux d'extinction de groupe
+b<- 0.63 #taux de natalité                   #enlever 
+Bf <- 1  #nombre de femelles reproductrices
+bf <- 3  #nombre de petits par femelle
+a<- 0.01 #taux d'agression
+A <- 0 #effet Allee                           #enlever 
+beta <- 15 #taux de transmission entre les groupes G and I
+betaw <- 35 # taux de transmission intragroupe
+alpha <- 1 #mortalité du à la maladie 
+sigma <-12  #taux d'incubation  
+phi<- 0.25 #immunité
+
+#Conditions initiales - Variables 
+G0 <- 5 #nombre de groupe susceptible
+I0 <- 2 #nombre de groupe infecté
+R0<-  1 #nombre de groupe retiré
+  
+g0 <- 7 #suscptibles dans un groupe de susceptibles
+s0 <- 0 #susceptibles dans un groupe d'infectés
+i0 <- 10 #infectés dans un groupe d'infectés
+r0 <- 0  #retirés dans un groupe d'infectés
+sR0<- 1 #susceptibles dans un groupe de retirés
+rR0<- 6  #retirés dans un groupe de retirés 
+
+
+#Graphique 3C 
+
+  #Construction du modèle SIR
+
+parms_SIR<- c(d=d, f=f, gf=gf, c=c, e=e, Bf=Bf, bf=bf, a=a, beta=beta, betaw=betaw, alpha=alpha, sigma=sigma, phi=phi)
+     ic<-c(G=G0, I=I0, g=g0, s=s0, i=i0, r=r0, R=R0, sR=sR0, rR=rR0)
+     times<- seq(0,500, by=1)  #long pour permettre d'atteindre l'équilibre 
+
+Modele_SIR <- function(t, x, parms){
+
+  ## create vectors to hold states through time
+  G <- x[1]
+  I <- x[2]
+  g <- x[3]
+  s <- x[4]
+  i <- x[5]
+  r <- x[6]
+  R <- x[7]
+  sR <- x[8]
+  rR <- x[9]
+  
+  G <- max(G,0)
+  I <- max(I,0)
+  R <- max(R,0)
+  g <- max(g,0)
+  s <- max(s,0)
+  i <- max(i,0)
+  r <- max(r,0)
+  sR <- max(sR,0)
+  rR <- max(rR,0)
+
+  ## model
+  with(as.list(parms),{
+
+      ## equation 13 in text
+    dg <- Bf*bf - (d+a)*g - (g*g*f)/((gf+g)*(d/(c+d))) - e*g*(G+I+R)
+    ## equation 14 in text
+    ds <- Bf*bf*((s+r)/(0.001+s+r)) - (d+a)*s + phi*r - s*f*(s+i+r)/((gf+s+i+r)*(d/(c+d))) - e*s*(G+I+R) - (betaw*s*i)/(1+s+i+r)
+    ## equation 15 in text
+    di <- (betaw*s*i)/(1+s+i+r) - (d+sigma+alpha+a)*i - e*i*(G+I+R)
+    ## equation 16 in text
+    dr <- sigma*i - (d+phi+a)*r - r*f*(s+i+r)/((gf+s+i+r)*(d/(c+d))) - e*r*(G+I+R)
+    ## equation 17 in text
+    dsR <- Bf*bf*((sR+rR)/(0.001+sR+rR)) - (d+a)*sR + phi*rR - ((sR+rR)*f*sR)/((gf+sR+rR)*(d/(c+d))) - e*sR*(G+I+R)
+    ## equation 18 in text
+    drR <- sigma*i/(1+i) - (d+phi+a)*rR - ((sR+rR)*rR*f)/((gf+sR+rR)*(d/(c+d))) - e*rR*(G+I+R)
+    
+    ## equation 19 in text
+    dG <- (G*c*f*g*g)/((gf+g)*(d+c)) - a*G - e*G*(G+I+R) + R*phi/(1+rR) - beta*I*G/(G+I+R)
+    ## equation 20 in text
+    dI <- beta*I*(G+(R*(sR/(sR+rR))))/(G+I+R) - a*I - e*I*(G+I+R) - I*((alpha+sigma)/(1+i))
+    ## equation 21 in text
+    dR <- I*sigma/(1+i) + (c*f*R*((sR+rR)^2))/((gf+sR+rR)*(c+d)) - a*R - e*R*(G+I+R) - R*phi/(1+rR) - beta*I*(R*(sR/(sR+rR)))/(G+I+R)
+    
+    
+        #Résultat
+        res <- c(dG, dI, dg, ds, di, dr, dR, dsR, drR)
+         list(res)
+  })
+}
+
+    
+     #Calculer G, I et R pour chaque valeur de betaw (transmission intragroupe)
+     
+     betaw_var<- seq(0, 40, by=1)  #séquence de plusieurs valeurs de transmission intergroupe (betaw)
+     result <- numeric(length(betaw_var))
+     betaw_var
+  
+  
+     result_G2<-numeric(length(betaw_var))  #les résultats seront des vecteurs de longueur D
+     result_I2<-numeric(length(betaw_var))
+     result_R2<-numeric(length(betaw_var)) 
+     result_GIR<-numeric(length(betaw_var))
+     G_control<-15
+     
+     
+       
+    #Boucle (calculer les paramètres pour chaque valeur de betaw)
+       for(k in seq_along(betaw_var)){
+       parms_SIR["betaw"] <- betaw_var[k] #Ajouter betaw aux paramètres
+       #parms_SIR["beta"] <- betaw_var[k] * a
+       sol<-ode(ic, times, Modele_SIR, parms_SIR, maxsteps = 1e6, rtol = 1e-6,atol = 1e-8, method="vode") #Résoudre 
+    
+       Geq2<-mean(tail(sol[,"G"], 50)) #Extraire les valeurs G et I finales de sol (valeurs à l'équilibre) de chacune des boucles
+       Ieq2 <- mean(tail(sol[,"I"], 50))
+       Req2<- mean(tail(sol[,"R"],50))
+        result_GIR[k]<-(Geq2+Ieq2+Req2)/(G_control)
+        result_G2[k]<-Geq2/(G_control) #Stocker dans le vecteur, en le mettant en valeur relative
+       result_I2[k]<- Ieq2/(G_control)
+       result_R2[k] <- Req2/(G_control) 
+       print(c(k=k, Geq2=Geq2, Ieq2=Ieq2, Req2=Req2))
+       }  
+     
+     
+  #Construire le graphique 
+    par(pty="s", pin=c(3,3)) #Pour que le graphique soit carré comme dans l'article 
+    plot(betaw_var, result_GIR, pch=19, col="green", log="y", ylim=c(0.01, 1.2), xlab="Transmission intragroupe", ylab="Nombre relatif de groupes",     
+         main="Nombre relatif de groupes (G), SIR", yaxt="n")
+    axis(2, at=c(0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1),    # On reconstruit un axe y ressemblant à celui dans l'article 
+    labels=c("0.01","0.02","0.05","0.1","0.2","0.5","1"), las=1)
+    points(betaw_var, result_I2, pch=19, col="red")
+    points(betaw_var, result_G2,pch=19, col="blue")
+    points(betaw_var, result_R2,pch=19, col="purple")
+    
+    
+#Grpahique 3D 
+    
+    result_g<-numeric(length(betaw_var))  #les résultats seront des vecteurs de longueur D
+    result_s<-numeric(length(betaw_var))
+    result_i<-numeric(length(betaw_var)) 
+    result_r<-numeric(length(betaw_var))
+    result_rR<-numeric(length(betaw_var))
+    result_sR<-numeric(length(betaw_var))
+    result_control<- numeric(length(betaw_var))
+    
+    #Boucle (calculer les paramètres pour chaque valeur de betaw)
+       for(k in seq_along(betaw_var)){
+       parms_SIR["betaw"] <- betaw_var[k] #Ajouter betaw aux paramètres
+       #parms_SIR["beta"] <- betaw_var[k] * a
+       sol<-ode(ic, times, Modele_SIR, parms_SIR, maxsteps = 1e6, rtol = 1e-6,atol = 1e-8, method="vode") #Résoudre 
+    
+    
+    geq<-tail(sol[,"g"], 1) #Extraire les valeurs finales g, i et s (valeurs à l'équilibre)
+    ieq <- tail(sol[,"i"], 1)
+    seq <- tail(sol[,"s"], 1)
+    req <-tail(sol[,"r"], 1)
+    sReq <-tail(sol[,"sR"], 1)
+    rReq <-tail(sol[,"rR"], 1)
+    result_g[k]<-geq/g_control 
+    result_i[k]<- ieq/g_control
+    result_s[k]<- seq/g_control
+    result_r[k] <- req/g_control
+    result_sR[k] <- sReq/g_control
+    result_rR[k] <- rReq/g_control
+    result_control <- geq/g_control}
+    
+     #Construire le graphique 
+    par(pty="s", pin=c(3,3)) #Pour que le graphique soit carré comme dans l'article 
+    plot(betaw_var, result_sR, pch=17, col="blue", log="y", ylim=c(0.01, 1.2), xlab="Transmission intragroupe", ylab="Taille de groupe relative", main="Taille de groupe relative (g), SIR", yaxt="n")
+    axis(2, at=c(0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1),    # On reconstruit un axe y ressemblant à celui dans l'article 
+    labels=c("0.01","0.02","0.05","0.1","0.2","0.5","1"), las=1)
+    points(betaw_var, result_i, pch=4, col="red")
+    points(betaw_var, result_s,pch=4, col="blue")
+    points(betaw_var, result_r,pch=4, col="purple")
+    points(betaw_var, result_rR,pch=17, col="purple")
+    points(betaw_var, result_g,pch=19, col="blue")
+    
+    #Légende 
+    legend("bottomleft",
+       legend = c("control",
+                  "susceptible",
+                  "infectés",
+                  "retrés",
+                  "groupe susceptible",
+                  "groupe infecté",
+                  "groupe retiré"),
+       
+       pch = c(19, 19, 19, 19, 0, 4, 17),   
+       col = c("green",
+               "blue",
+               "red",
+               "purple",
+               "black",
+               "black",
+               "black"),                   
+       
+       pt.cex = 1,
+       cex= 0.8,
+       bty = "n")        
+```

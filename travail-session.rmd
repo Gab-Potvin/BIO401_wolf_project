@@ -1,0 +1,1166 @@
+---
+title: "Travail session"
+output: html_document
+date: "2026-03-03"
+author : "Anomalie statistique" 
+---
+
+**Première partie : Reproduire le modèle décrit dans l'article "A metapopulation model of social group dynamics and disease applied to Yellowstone wolves" (Brandell et al., 2020)**
+
+1. Question biologique  
+Comment les dynamiques sociales et infectieuses interagissent-elles chez les mammifères vivant en groupe?
+
+2. Hypothèses 
+- La présence d'agents pathogènes modifie les taux caractérisant les dynamiques sociales (taux de natalité et de mortalité individuels, taux de fission et de fusion des groupes, taux d'agression entre les groupes).
+- La présence d'agents pathogène ne modifie pas les taux caractérisant les dynamiques sociales (taux de natalité et de mortalité individuels, taux de fission et de fusion des groupes, taux d'agression entre les groupes).
+
+3. Informations pertinentes sur les données 
+```{r, echo=TRUE}
+wolf<-read.csv("wolf_counts.csv", header = T, sep = ",")
+wolf
+```
+4. Méthodes
+
+**Modèle des groupes sociaux**
+\[
+\frac{dg}{dt}
+= g(b - d)
+- \frac{f g^{2}}{(g_f + g)\,\frac{d}{c + d}}
+- (a + eG)\,g
+\]
+
+\[
+\frac{dG}{dt}
+= \frac{G f g^{2} c}{(g_f + g)(c + d)}
+- (a + eG)\,G
+\]
+
+g = taille moyenne des groupes
+$g_f$ = taille critique après laquelle augmente le taux de fission 
+G = nombre de groupes 
+f = taux de fission 
+c = taux de fusion 
+b = taux de natalité par individu
+d = taux de mortalité par individu 
+e = taux d'extinction de groupe (prend en compte la mortalité de fond, la dissolution des groupes, les limitations de l'environnement)
+a = taux d'agression intergroupe 
+
+5. Suppositions 
+
+**Modèle des groupes sociaux - de base **
+- Tous les groupes sont égaux. 
+- On assume que toutes les femelles d'un groupe se reproduisent, comme c'est le cas chez les ongulés sociaux. 
+- Les individus meurent à au taux constant (d) qui est indépendant de la taille du groupe.
+- Les taux d'extinction (e) augmente avec le nombre de groupe (G). --> j'ai décidé de la séparer de la supposition ci-dessous
+- On suppose que le taux de fission (f) du groupe augmente avec la taille du groupe (g) en tant que fonction dépendante de la densité, $\frac{fg^2}{(g_f + g)} : la fission augmente lorsque la taille du groupe dépasse une taille critique (g_f).  
+- Le taux d'agression est minimal.
+
+
+**Modèle carnivore - avec et sans effet Allee**
+- Tous les groupes sont égaux.
+- On suppose qu'une ou deux femelles se reproduisent dans un groupe social (en modifiant le taux de natalité), comme c'est le cas chez de nombreuses epèces carnivores.
+- Les individus meurent à au taux constant (d) qui est indépendant de la taille du groupe.
+- On suppose que le taux de fission (f) du groupe augmente avec la taille du groupe (g) en tant que fonction dépendante de la densité, $\frac{fg^2}{(g_f + g)} : la fission augmente lorsque la taille du groupe dépasse une taille critique (g_f).
+- Le taux d'agression intergroupe accroit linéairement avec le nombre de groupe.
+
+**Modèle avec pathogène**
+- On assume que les individus infectés ne se reproduisent pas durant le temps d'infection. 
+
+
+
+6. Calculs 
+
+**Modèle des groupes sociaux** #(j'ai remarqué qu'il y a potentiellement une erreur dans l'article. Dans la descrption de la figure 1a, on dit prendre les équations 6 et 7, ce que j'ai fait ici, mais en réalité ils prennent l'équation 5 et 3 --> voir dans le code fourni par l'article)
+```{r, echo=TRUE}
+library(deSolve)
+#Conditions initiales
+g0<- 8 #taille de groupe initiale utilisée dans l'article (voir graphique 1a)
+G0<- 10 # nombre de groupe initial utilisé dans l'article (voir graphique 1a)
+b<- 0.63 #taux de natalité par individu 
+d<- 0.12 #taux de mortalité par individu
+f<- 0.08 #taux de fission
+gf<- 8 #taille critique 
+c<- 4 #taux de fusion
+e<- 0.02 #taux d'extinction de groupe 
+
+# Construction du modèle de base
+parms_core<- c(b=b, d=d, f=f, gf=gf, c=c, e=e)
+Core_Model_Dynamics <- function(t, vars, parms_core) {
+  with(as.list(c(vars, parms_core)), {
+    #Équation 5 
+    dg= g*(b-d)-(f*g^2)*(d/((gf+g)*(c+d)))-(e*G*g)
+    #Équation 3 
+    dG= (G*f*g^2*c)/((gf+g)*(c+d))-(e*G*G)
+    
+    
+    #Résultats
+    res<- c(dg=dg, dG=dG)
+    return(list(res))
+  })
+}
+
+#Dessiner la solution - Graphique 1A
+Graphique1A<- function(ic=c(g=g0, G=G0), tmax=21, times=seq(0, tmax, by=1), func, parms_core){
+  soln <- ode(ic, times, func, parms_core)
+  par(pty="s", pin=c(3,3)) #Pour que le graphique soit carré comme dans l'article 
+  plot(times, soln[, "g"], type="l", lty=3, ylim=c(5, 500),xlab="année", ylab= "effectif", main= "Modèle de base", log="y", yaxt="n",     lwd=3)                                                 # Taille des groupes 
+  axis(2, at = c(5, 10, 20, 50, 100, 200, 500), labels=c(5, 10, 20, 50, 100, 200, 500), las=2)
+  lines(times, soln[,"G"], lty=2, lwd=3)                 # Nombre de groupes 
+  lines (times, (soln[,"g"]*soln[,"G"]), lty=1, lwd=3)   #Population totale 
+  return(soln)} 
+
+  Graphique1A(func=Core_Model_Dynamics, parms=parms_core)
+
+#Dessiner la solution - Graphique 1B 
+
+  #Nullclines 
+
+    #On crée un vecteur avce les valeurs de g  
+       g_seq<- seq(0.1, 40, length.out=400)
+    
+    #Équation dg/dt=0 --> 0 = g*(b-d)-(f*g^2)*(d/((gf+g)*(c+d)))-(e*G*g)
+        #Factorise g : 0= g[ (b-d) - fgd/((gf+g)(c+d))-eG] --> nullcline possible à g=0 (pas celle recherchée)
+        # Isole G : G= [(b-d) - fgd/((gf+g)(c+d))]/e --> nullcline possible à G= [(b-d) - fgd/((gf+g)(c+d))]/e 
+    nullg <-  ((b-d) - f*g_seq*d/((gf+g_seq)*(c+d)))/e 
+    
+    #Équation dG/dt=0 --> 0 = (G*f*g^2*c)/((gf+g)*(c+d))-(a+e*G)*G
+        #Factorise G : 0= G[f*g^2*c/((gf+g)*(c+d))-(a+e*G)] -->nullcline possible à G=0 (pas celle recherchée)
+        # Isole G : G= [f*g^2*c/((gf+g)*(c+d))-a]/e --> nullcline possible à G = [f*g^2*c/((gf+g)*(c+d))-a]/e
+    nullG <- (f*g_seq^2*c/((gf+g_seq)*(c+d)))/e
+
+    
+  #Points de la trajectoire
+  Graphique1B<- function(ic=c(g=g0, G=G0), tmax=21, times=seq(0, tmax, by=1), func, parms_core){
+  soln <- ode(ic, times, func, parms_core)
+
+  par(pty="s", pin=c(3,3)) 
+  plot(soln[,"g"], soln[,"G"], xlab="taille de groupes (g)", ylab= "nombre de groupes (G)", main="Nullcline", col="blue", xlim=c(1,20), ylim=c(1,35), pch=19) #pch=19 pour points ronds et pleins 
+   
+     #Ajout des nullclines 
+      lines (g_seq, nullg, col="black", lty=3, lwd=2)
+      lines (g_seq, nullG, col="black", lty=2, lwd=2)
+     return(soln)} 
+
+Graphique1B(func=Core_Model_Dynamics, parms=parms_core)
+
+```
+
+
+**Modèle pour carnivores**
+```{r, echo=TRUE}
+library(deSolve)
+#Conditions initiales
+g0<- 4
+G0<- 3
+Bf <- 1  #nombre de femelles reproductrices
+bf <- 3  #nombre de petits par femelle
+d<- 0.12 #taux de mortalité par individu
+f<- 0.08 #taux de fission
+gf<- 8 #taille critique 
+c<- 4 #taux de fusion
+a<- 0.1 #taux d'agression
+e<- 0.02 #taux d'extinction de groupe 
+A <- 2 #effet Allee
+
+
+#Modèle carnivore (sans allee)
+parms_carni<- c(d=d, f=f, gf=gf, c=c, a=a, e=e, Bf=Bf, bf=bf)
+
+    #Modèle
+    Carnivore_Model <- function(t, vars, parms_carni) {
+       with(as.list(c(vars, parms_carni)), {
+         
+    #Équation 6 + femelle reproductrice sans Allee
+    dg= bf*(g/(Bf+g)) - d*g - (f*g*g/(gf+g))*(d/(c+d)) - (a+e*G)*g
+    #Équation 7 
+    dG= (G*f*g^2*c)/((gf+g)*(c+d))-a*G - e*G*G
+    
+     #Résultats
+    res<- c(dg=dg, dG=dG)
+    return(list(res))
+  })
+}
+
+
+#Dessiner la solution - Graphique 1C
+Graphique1C<- function(ic=c(g=g0, G=G0), tmax=21, times=seq(0, tmax, by=1), func, parms_carni){
+  soln <- ode(ic, times, func, parms_carni)
+  
+  par(pty="s", pin=c(3,3)) 
+  plot(times, soln[, "g"], type="l", lty=3, lwd=2, ylim=c(1,100), xlab="année", ylab= "effectif", main= "Modèle carnivore", log="y", yaxt="n" )
+  axis(2, at = c(1, 2, 5, 10, 20, 50, 100), labels=c(1, 2, 5, 10, 20, 50, 100), las=2)
+  lines(times, soln[,"G"], lwd=2, lty=2)
+  lines (times, (soln[,"g"]*soln[,"G"]), lty=1, lwd=2)
+  lines(times, wolf$total_population, lty=1, lwd=2, col="blue")
+  lines(times, wolf$pack_count, lwd=2, lty=2, col="blue")
+  lines(times, wolf$mean_pack_size,lty=3, lwd=2, col="blue")
+  return(soln)} 
+
+Graphique1C(func=Carnivore_Model, parms=parms_carni)
+    
+    #Légende
+    legend("bottomright",
+       legend = c("taille moyenne des groupes (g)", 
+                  "nombre de groupes (G)",
+                  "population totale (g*G)",
+                  "données observées"),
+       col = c("black", "black", "black", "blue"),
+       lty = c(3, 2, 1, 1),
+       lwd = c(2, 2, 2, 2),
+       bty = "n",
+       cex=0.5)
+
+
+# Modèle carnivore avec effet Allee
+parms_carni_allee<- c(d=d, f=f, gf=gf, c=c, a=a, e=e, Bf=Bf, bf=bf, A=A)
+
+  #Modèle
+  Carnivore_Model_Allee <- function(t, vars, parms_carni_allee) {
+  with(as.list(c(vars, parms_carni_allee)), {
+    
+    #Équation 6 + femelle reproductrice
+    dg= bf*(g/(Bf+g))*(g/(g+A)) - d*g - (f*g*g/(gf+g))*(d/(c+d)) - (a+e*G)*g
+    #Équation 7 
+    dG= (G*f*g^2*c)/((gf+g)*(c+d))-a*G -e*G*G
+    
+     #Résultats
+    res<- c(dg=dg, dG=dG)
+    return(list(res))
+  })
+}
+
+  
+#Dessiner la solution - Graphique 1D
+Graphique1D<- function(ic=c(g=g0, G=G0), tmax=21, times=seq(0, tmax, by=1),
+          func1, parms1,         #Modèle carnivore avec Allee
+          func2, parms2,         #Modèle carnivore sans Allee
+          g_seq=seq(0.1, 40, length.out=400)
+){
+  soln1 <- ode(ic, times, func1, parms1)  #Résolution modèle Carnivore avec Allee
+  soln2 <- ode(ic, times, func2, parms2)  #Résolution modèle Carnivore sans Allee
+  
+  par(pty="s", pin=c(3,3)) 
+  plot(soln1[,"g"], soln1[,"G"], xlab="taille de groupes (g)", ylab= "nombre de groupes (G)", main="Nullcline", pch=17, ylim=c(0,15), xlim=c(0,12), col="blue")
+  points(soln2[,"g"], soln2[,"G"], col="blue", pch=19)
+  lines (g_seq, nullg_carniAllee, col="green", lty=2) #cette ligne la est de plus grande amplitude dans les résultats, je ne comprends pas pourquoi 
+  lines (g_seq, nullG_carniAllee, col="black", lty=4, lwd=2)
+  lines (g_seq, nullg_carni, col="black", lty=2)
+ return(list(soln1, soln2)) } 
+
+
+#Nullclines 
+
+  #dg/dt=0 --> 0= bf*(g/(Bf+g))*(g/(g+A)) - d*g - (f*g*g/(gf+g))*(d/(c+d)) - (a+e*G)*g
+              #Factorise g : 0=g[bf(g/((Bf+g)(g+A)))-d - fgd/((gf+g)(c+d)) - (a+eG)] --> nullcline possible à g=0 (pas celle recherchée)
+              # Isole G : G= (bf*g/((Bf + g)(g+A)) - d - fgd/((gf+g)(c+d)) -a)/e
+
+  nullg_carniAllee<- (bf*g_seq/((Bf + g_seq)*(g_seq+A)) - d - (f*g_seq*d)/((gf+g_seq)*(c+d)) -a)/e
+  
+  
+  #dG/dt=0 --> 0=(G*f*g*g*c)/((gf+g)*(c+d))-(a+e*G)*G
+              # Factorise G : 0= G[(fggc)/((gf+g)(c+d)) - a - eG] --> nullcline possible à G=0 (pas celle recherchée)
+              # Isole G : G= ((fggc)/((gf+g)(c+d)) - a)/e
+  nullG_carniAllee<- ((f*g_seq^2*c)/((gf+g_seq)*(c+d)) - a)/e 
+
+  #dg/dt=0 -->  0= bf*(g/(Bf+g)) - d*g - (f*g*g/(gf+g))*(d/(c+d)) - (a+e*G)*g
+              #Factorise g : 0=g[bf/(Bf+g) - d - (fg/(gf+g))(d/(c+d)) - (a+eG)] --> nullcline possible à g=0 (pas celle recherchée)
+              #Isole G : G= (bf/(Bf+g) - d - (fg/(gf+g))(d/(c+d)) - a)/e
+  nullg_carni<- (bf/(Bf+g_seq) - d - ((f*g_seq)/(gf+g_seq))*(d/(c+d)) - a)/e
+
+
+Graphique1D(func1= Carnivore_Model_Allee, parms1=parms_carni_allee, func2 = Carnivore_Model, parms2 = parms_carni)
+
+    #Légende 
+legend("bottomright",
+       legend = c("Trajectoire modèle carnivore Allee",
+                  "Trajectoire modèle carnivore sans Allee",
+                  "Nullcline dg/dt=0 (Allee)",
+                  "Nullcline dG/dt=0 (Allee et sans Allee)",
+                  "Nullcline dg/dt=0 (sans Allee)"),
+       col = c("blue", "blue", "green", "black", "black"),
+       lty = c(NA, NA, 2, 4, 2),
+       pch = c(17, 19, NA, NA, NA),
+       lwd = c(NA, NA, 2, 2, 2),
+       bty = "n",
+       cex=0.4)
+
+```
+**Modèle SIS**
+
+```{r, echo=TRUE}
+#Conditions initiales - Paramètres
+d<- 0.12 #taux de mortalité par individu
+f<- 0.01 #taux de fission
+gf<- 8 #taille critique 
+c<- 4 #taux de fusion
+e<- 0.001 #taux d'extinction de groupe
+b<- 0.63 #taux de natalité 
+Bf <- 1  #nombre de femelles reproductrices
+bf <- 3  #nombre de petits par femelle
+a<- 0.01 #taux d'agression
+A <- 0 #effet Allee
+beta = 1.5 #taux de transmission entre les groupes G and I 
+betaw = 8 # taux de transmission intragroupe
+alpha = 0.2 #mortalité du à la maladie                 
+
+#Conditions intiales - Variables (valeurs prises au pif, mais cohérentes avec les graphiques 1ABCD)
+g0 =  6 #suscptibles dans un groupe de susceptibles
+s0 = 5 #susceptibles dans un groupe d'infectés
+i0 = 1 #infectés dans un groupe d'infectés
+G0 = 7.99 #nombre de groupe susceptible
+I0 = 0.01 #nombre de groupe infecté
+
+
+
+#Graphique 3A
+  #Créer un vecteur sigma (c'est avec ce vecteur qu'on construit l'axe des x du graphique 3A)
+  D<- seq(0.01, 2, length.out=40)  #durée d'infection pour axe des x 
+  sigma_var<- 1/D # sigma correspondant 
+  result <- numeric(length(D))
+
+  #Construction du modèle SIS 
+  parms_SIS<- c(d=d,b=b, f=f, gf=gf, c=c, e=e, Bf=Bf, bf=bf, a=a, A=A, beta=beta, betaw=betaw, alpha=alpha, sigma=sigma)
+  ic<-c(G=G0, I=I0, g=g0, s=s0, i=i0)
+  times<- seq(0,100, by=1)  #long pour permettre d'atteindre l'équilibre 
+
+
+  Modele_SIS<- function(t, vars, parms){
+    with(as.list(c(vars,parms)),{
+    
+      #Équation 8 (b remplacé par bf dans mat supp?)
+      dg <- Bf*bf*(g/(A+g)) - d*g - a*g - (g*g*f)/((gf+g)*(d/(c+d)))  - e*g*(G+I)
+   
+      #Équation 9 
+      ds <- ((s*Bf)/(s+0.001))*b*((s+i)/(A+s+i)) - d*s + sigma*i - ((s+i)*s*f/(gf+(s+i)))*(d/(c+d)) - a*s - e*s*(G+I) - (betaw*s*i)/(1+s+i)
+    
+      #Équation 10  (dans le texte pas un moins devant d+alpha+sigma+a, mais un *)
+      di <- ((betaw*s*i)/(1+s+i))- (d+alpha+sigma+a)*i - ((s+i)*i*f/((gf+s+i)*(d/(c+d)))) - e*i*(G+I)
+    
+      #Équation 11 
+      dG <- (c*f*g*g*G)/((gf+g)*(d+c)) - a*G - e*G*(G+I) + I*sigma/(1+i) - beta*I*G/(G+I)
+    
+      #Équation 12
+      dI <- (beta*I*G)/(G+I) + (f*c*I*(s+i)^2)/((gf+s+i)*(d+c)) - a*I - e*I*(G+I) - I*((sigma+alpha)/(1+i))
+    
+      #Résultat 
+      res <- c(dG, dI, dg, ds, di)
+      list(res)
+  })
+}
+
+  
+  #Calculer G et I pour chaque valeur de sigma
+  result_G<-numeric(length(D))  #les résultats seront des vecteurs de longueur D
+  result_I<-numeric(length(D))
+  result_GI<-numeric(length(D))
+  
+  #Calculer le controle : puisqu'il y a des groupes d'infectés comportant des susceptibles, on ne peut pas seulement additionner i et g. On calcule le contrôle en passant par un modèle sans pathogène, sans effet Allee 
+  g0_control<-4
+  G0_control<-3
+  sol_control<-ode(c(g=g0_control, G=G0_control), times, Carnivore_Model, parms_carni) #Trouver g et G à l'équilibre dans le modèle sans maladie 
+  g_control<- tail(sol_control[,"g"], 1)
+  G_control<- tail(sol_control[,"G"], 1)
+  g_control
+  G_control #a enlever si on le prend pas pour l'étape plus haut 
+  
+ 
+    #Boucle (calculer les paramètres pour chaque valeur de sigma)
+    for(k in seq_along(D)){
+    parms_SIS["sigma"] <- sigma_var[k] #Ajouter sigma aux paramètres
+    sol<-ode(ic, times, Modele_SIS, parms_SIS) #Résoudre 
+
+    Geq<-tail(sol[,"G"], 1) #Extraire les valeurs G et I finales de sol (valeurs à l'équilibre) de chacune des boucles
+    Ieq <- tail(sol[,"I"], 1)
+    result_G[k]<-Geq/(G_control)#Geq+Ieq) #Stcker dans le vecteur, en le mettant en valeur relative
+    result_I[k]<- Ieq/(G_control)#Geq+Ieq)
+    result_GI[k]<-G_control/G_control} #Geq+Ieq)/(Geq+Ieq)}    #= toujours 1 
+
+  
+  #Construire le graphique 3A
+  par(pty="s", pin=c(3,3)) #Pour que le graphique soit carré comme dans l'article 
+  plot(D, result_GI, pch=19, col="green", log="y", ylim=c(0.01,1.5), xlab="Durée de l'infection (années)", ylab="Nombre relatif de groupes", main="Nombre relatif de groupes (G, I), SIS", yaxt="n")
+axis(2, at=c(0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1),    # On reconstruit un axe y ressemblant à celui dans l'article 
+     labels=c("0.01","0.02","0.05","0.1","0.2","0.5","1"))
+  points(D, result_I, pch=19, col="red")
+  points(D, result_G,pch=19, col="blue")
+  
+  
+#Graphique 3B 
+  result_g<-numeric(length(D)) # Les résultats seront des vecteurs de longueurs D 
+  result_i<-numeric(length(D))
+  result_s<-numeric(length(D))
+
+  
+  #Boucle (calculer les paramètres pour chaque valeur de sigma)
+    for(k in seq_along(D)){
+    parms_SIS["sigma"] <- sigma_var[k] #Ajouter sigma aux paramètres
+    sol<-ode(ic, times, Modele_SIS, parms_SIS) #Résoudre 
+
+    geq<-tail(sol[,"g"], 1) #Extraire les valeurs finales g, i et s (valeurs à l'équilibre)
+    ieq <- tail(sol[,"i"], 1)
+    seq <- tail(sol[,"s"], 1)
+    result_g[k]<-geq/g_control 
+    result_i[k]<- ieq/g_control
+    result_s[k]<- seq/g_control}
+
+  
+  #Tracer le graphique 3B
+  par(pty="s", pin=c(3,3)) #Pour que le graphique soit carré comme dans l'article 
+  plot(D, result_s, pch=4, col="blue", log="y", ylim=c(0.01,1.5), xlab="Durée de l'infection (années)", ylab="Taille relative des groupes", main="Taille relative de groupes (g, s+i), SIS")
+  points(D, result_i, pch=4, col="red")
+  points(D, result_g, pch=19, col="blue")
+  points(D, rep(g_control/g_control, 40), pch=19, col="green") #Puisqu'il n'y a pas de sigma dans le modele sans maladie, g sera g pour toutes le valeures de sigma, et g_control/g_control = 1
+  
+  
+  
+  
+
+```
+
+
+
+**Modèle SIR**
+```{r, echo=TRUE}
+
+                                                          ################ PROBLÈME ICI
+#Conditions initiales 
+d<- 0.12 #taux de mortalité par individu
+f<- 0.01 #taux de fission
+gf<- 8 #taille critique 
+c<- 4 #taux de fusion
+e<- 0.001 #taux d'extinction de groupe
+b<- 0.63 #taux de natalité                   #enlever 
+Bf <- 1  #nombre de femelles reproductrices
+bf <- 3  #nombre de petits par femelle
+a<- 0.01 #taux d'agression
+A <- 0 #effet Allee                           #enlever 
+beta <- 15 #taux de transmission entre les groupes G and I
+betaw <- 35 # taux de transmission intragroupe
+alpha <- 1 #mortalité du à la maladie 
+sigma <-12  #taux d'incubation  
+phi<- 0.25 #immunité
+
+#Conditions initiales - Variables 
+G0 <- 5 #nombre de groupe susceptible
+I0 <- 2 #nombre de groupe infecté
+R0<-  1 #nombre de groupe retiré
+  
+g0 <- 7 #suscptibles dans un groupe de susceptibles
+s0 <- 0 #susceptibles dans un groupe d'infectés
+i0 <- 10 #infectés dans un groupe d'infectés
+r0 <- 0  #retirés dans un groupe d'infectés
+sR0<- 1 #susceptibles dans un groupe de retirés
+rR0<- 6  #retirés dans un groupe de retirés 
+
+
+#Graphique 3C 
+
+  #Construction du modèle SIR
+
+parms_SIR<- c(d=d, f=f, gf=gf, c=c, e=e, Bf=Bf, bf=bf, a=a, beta=beta, betaw=betaw, alpha=alpha, sigma=sigma, phi=phi)
+     ic<-c(G=G0, I=I0, g=g0, s=s0, i=i0, r=r0, R=R0, sR=sR0, rR=rR0)
+     times<- seq(0,500, by=1)  #long pour permettre d'atteindre l'équilibre 
+
+Modele_SIR <- function(t, x, parms){
+
+  ## create vectors to hold states through time
+  G <- x[1]
+  I <- x[2]
+  g <- x[3]
+  s <- x[4]
+  i <- x[5]
+  r <- x[6]
+  R <- x[7]
+  sR <- x[8]
+  rR <- x[9]
+  
+  G <- max(G,0)
+  I <- max(I,0)
+  R <- max(R,0)
+  g <- max(g,0)
+  s <- max(s,0)
+  i <- max(i,0)
+  r <- max(r,0)
+  sR <- max(sR,0)
+  rR <- max(rR,0)
+
+  ## model
+  with(as.list(parms),{
+
+      ## equation 13 in text
+    dg <- Bf*bf - (d+a)*g - (g*g*f)/((gf+g)*(d/(c+d))) - e*g*(G+I+R)
+    ## equation 14 in text
+    ds <- Bf*bf*((s+r)/(0.001+s+r)) - (d+a)*s + phi*r - s*f*(s+i+r)/((gf+s+i+r)*(d/(c+d))) - e*s*(G+I+R) - (betaw*s*i)/(1+s+i+r)
+    ## equation 15 in text
+    di <- (betaw*s*i)/(1+s+i+r) - (d+sigma+alpha+a)*i - e*i*(G+I+R)
+    ## equation 16 in text
+    dr <- sigma*i - (d+phi+a)*r - r*f*(s+i+r)/((gf+s+i+r)*(d/(c+d))) - e*r*(G+I+R)
+    ## equation 17 in text
+    dsR <- Bf*bf*((sR+rR)/(0.001+sR+rR)) - (d+a)*sR + phi*rR - ((sR+rR)*f*sR)/((gf+sR+rR)*(d/(c+d))) - e*sR*(G+I+R)
+    ## equation 18 in text
+    drR <- sigma*i/(1+i) - (d+phi+a)*rR - ((sR+rR)*rR*f)/((gf+sR+rR)*(d/(c+d))) - e*rR*(G+I+R)
+    
+    ## equation 19 in text
+    dG <- (G*c*f*g*g)/((gf+g)*(d+c)) - a*G - e*G*(G+I+R) + R*phi/(1+rR) - beta*I*G/(G+I+R)
+    ## equation 20 in text
+    dI <- beta*I*(G+(R*(sR/(sR+rR))))/(G+I+R) - a*I - e*I*(G+I+R) - I*((alpha+sigma)/(1+i))
+    ## equation 21 in text
+    dR <- I*sigma/(1+i) + (c*f*R*((sR+rR)^2))/((gf+sR+rR)*(c+d)) - a*R - e*R*(G+I+R) - R*phi/(1+rR) - beta*I*(R*(sR/(sR+rR)))/(G+I+R)
+    
+    
+        #Résultat
+        res <- c(dG, dI, dg, ds, di, dr, dR, dsR, drR)
+         list(res)
+  })
+}
+
+    
+     #Calculer G, I et R pour chaque valeur de betaw (transmission intragroupe)
+     
+     betaw_var<- seq(0, 40, by=1)  #séquence de plusieurs valeurs de transmission intergroupe (betaw)
+     result <- numeric(length(betaw_var))
+     betaw_var
+  
+  
+     result_G2<-numeric(length(betaw_var))  #les résultats seront des vecteurs de longueur D
+     result_I2<-numeric(length(betaw_var))
+     result_R2<-numeric(length(betaw_var)) 
+     result_GIR<-numeric(length(betaw_var))
+     G_control<-15
+     
+     
+       
+    #Boucle (calculer les paramètres pour chaque valeur de betaw)
+       for(k in seq_along(betaw_var)){
+       parms_SIR["betaw"] <- betaw_var[k] #Ajouter betaw aux paramètres
+       #parms_SIR["beta"] <- betaw_var[k] * a
+       sol<-ode(ic, times, Modele_SIR, parms_SIR, maxsteps = 1e6, rtol = 1e-6,atol = 1e-8, method="vode") #Résoudre 
+    
+       Geq2<-mean(tail(sol[,"G"], 50)) #Extraire les valeurs G et I finales de sol (valeurs à l'équilibre) de chacune des boucles
+       Ieq2 <- mean(tail(sol[,"I"], 50))
+       Req2<- mean(tail(sol[,"R"],50))
+        result_GIR[k]<-(Geq2+Ieq2+Req2)/(G_control)
+        result_G2[k]<-Geq2/(G_control) #Stocker dans le vecteur, en le mettant en valeur relative
+       result_I2[k]<- Ieq2/(G_control)
+       result_R2[k] <- Req2/(G_control) 
+       print(c(k=k, Geq2=Geq2, Ieq2=Ieq2, Req2=Req2))
+       }  
+     
+     
+  #Construire le graphique 
+    par(pty="s", pin=c(3,3)) #Pour que le graphique soit carré comme dans l'article 
+    plot(betaw_var, result_GIR, pch=19, col="green", log="y", ylim=c(0.01, 1.2), xlab="Transmission intragroupe", ylab="Nombre relatif de groupes",     
+         main="Nombre relatif de groupes (G), SIR", yaxt="n")
+    axis(2, at=c(0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1),    # On reconstruit un axe y ressemblant à celui dans l'article 
+    labels=c("0.01","0.02","0.05","0.1","0.2","0.5","1"), las=1)
+    points(betaw_var, result_I2, pch=19, col="red")
+    points(betaw_var, result_G2,pch=19, col="blue")
+    points(betaw_var, result_R2,pch=19, col="purple")
+    
+    
+#Grpahique 3D 
+    
+    result_g<-numeric(length(betaw_var))  #les résultats seront des vecteurs de longueur D
+    result_s<-numeric(length(betaw_var))
+    result_i<-numeric(length(betaw_var)) 
+    result_r<-numeric(length(betaw_var))
+    result_rR<-numeric(length(betaw_var))
+    result_sR<-numeric(length(betaw_var))
+    result_control<- numeric(length(betaw_var))
+    
+    #Boucle (calculer les paramètres pour chaque valeur de betaw)
+       for(k in seq_along(betaw_var)){
+       parms_SIR["betaw"] <- betaw_var[k] #Ajouter betaw aux paramètres
+       #parms_SIR["beta"] <- betaw_var[k] * a
+       sol<-ode(ic, times, Modele_SIR, parms_SIR, maxsteps = 1e6, rtol = 1e-6,atol = 1e-8, method="vode") #Résoudre 
+    
+    
+    geq<-tail(sol[,"g"], 1) #Extraire les valeurs finales g, i et s (valeurs à l'équilibre)
+    ieq <- tail(sol[,"i"], 1)
+    seq <- tail(sol[,"s"], 1)
+    req <-tail(sol[,"r"], 1)
+    sReq <-tail(sol[,"sR"], 1)
+    rReq <-tail(sol[,"rR"], 1)
+    result_g[k]<-geq/g_control 
+    result_i[k]<- ieq/g_control
+    result_s[k]<- seq/g_control
+    result_r[k] <- req/g_control
+    result_sR[k] <- sReq/g_control
+    result_rR[k] <- rReq/g_control
+    result_control <- geq/g_control}
+    
+     #Construire le graphique 
+    par(pty="s", pin=c(3,3)) #Pour que le graphique soit carré comme dans l'article 
+    plot(betaw_var, result_sR, pch=17, col="blue", log="y", ylim=c(0.01, 1.2), xlab="Transmission intragroupe", ylab="Taille de groupe relative", main="Taille de groupe relative (g), SIR", yaxt="n")
+    axis(2, at=c(0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1),    # On reconstruit un axe y ressemblant à celui dans l'article 
+    labels=c("0.01","0.02","0.05","0.1","0.2","0.5","1"), las=1)
+    points(betaw_var, result_i, pch=4, col="red")
+    points(betaw_var, result_s,pch=4, col="blue")
+    points(betaw_var, result_r,pch=4, col="purple")
+    points(betaw_var, result_rR,pch=17, col="purple")
+    points(betaw_var, result_g,pch=19, col="blue")
+    
+    #Légende 
+    legend("bottomleft",
+       legend = c("control",
+                  "susceptible",
+                  "infectés",
+                  "retrés",
+                  "groupe susceptible",
+                  "groupe infecté",
+                  "groupe retiré"),
+       
+       pch = c(19, 19, 19, 19, 0, 4, 17),   
+       col = c("green",
+               "blue",
+               "red",
+               "purple",
+               "black",
+               "black",
+               "black"),                   
+       
+       pt.cex = 1,
+       cex= 0.8,
+       bty = "n")        
+    
+    
+    
+    
+
+```
+
+
+
+
+***Figure 4A et 4C***
+```{r, echo=TRUE}
+
+#FIGURE 4A
+  #Conditions initiales (voir description figure 4)
+  betaw<-8
+  beta<-1.5
+  alpha<-0.2
+  sigma<-2
+  e=0.001
+  f=0.05
+  a=0.05
+  A=0
+  d<- 0.12 #taux de mortalité par individu
+  gf<- 8 #taille critique 
+  c<- 4 #taux de fusion
+  b<- 0.63 #taux de natalité 
+  Bf <- 1  #nombre de femelles reproductrices
+  bf <- 3  #nombre de petits par femelle
+
+
+  #Solutionner le modèle SIS avec les bons paramèetres
+  parms_SIS_invasion<- c(d=d,b=b, f=f, gf=gf, c=c, e=e, Bf=Bf, bf=bf, a=a, A=A, beta=beta, betaw=betaw, alpha=alpha, sigma=sigma)
+  ic_SIS_invasion<-c(G=50, I=5, g=9, s=9, i=1) #Voir figure 4 temps 0
+  times<- seq(0,5, by=0.1)  
+
+  invasionSIS<- ode(ic_SIS_invasion, times, Modele_SIS, parms_SIS_invasion)
+
+  #Tracer le graphique 4A
+  poptot<- (invasionSIS[, "G"]*invasionSIS[, "g"]) + (invasionSIS[,"I"]*invasionSIS[,"s"]) + (invasionSIS[,"I"]*invasionSIS[,"i"]) #Calculer la population totale 
+
+  par(pty="s", pin=c(3,3)) #Pour un graphique carré
+
+  plot(times, poptot, col="black", lwd=4, type="l", log="y", ylim=c(0.1, 500), xlab="années", ylab="Effectif", main="Modèle SIS : invasion", yaxt="n" )
+  lines(times, invasionSIS[,"G"], col="blue", lwd=4)
+  lines(times, invasionSIS[, "I"], col="red", lwd=4)
+  lines(times, invasionSIS[,"g"], col="blue", lwd=2)
+  lines(times, invasionSIS[,"s"], col="orange", lwd=2)
+  lines(times, invasionSIS[,"i"], col="red", lwd=2)
+  axis(2, at = c(0.1, 0.5, 1, 5, 10, 50, 100, 500),labels = c("0.1", "0.5","1", "5", "10", "50", "100", "500"),las = 1)   #axe y défini avec texte horizontal
+
+
+  
+#FIGURE 4C
+  
+  #Changer le temps pour obtenir une figure long terme
+  times<- seq(0,50, by=1)
+  
+  #Solutionner le modèle SIS
+  longtermSIS<- ode(ic_SIS_invasion, times, Modele_SIS, parms_SIS_invasion)
+  
+  #Tracer le graphique 4C
+  poptot<- (longtermSIS[, "G"]*longtermSIS[, "g"]) + (longtermSIS[,"I"]*longtermSIS[,"s"]) + (longtermSIS[,"I"]*longtermSIS[,"i"]) #Calculer la population totale 
+
+  par(pty="s", pin=c(3,3)) #Pour un graphique carré
+
+  plot(times, poptot, col="black", lwd=4, type="l", log="y", ylim=c(0.1, 500), xlab="années", ylab="Effectif", main="Modèle SIS : invasion", yaxt="n" )
+  lines(times, longtermSIS[,"G"], col="blue", lwd=4)
+  lines(times, longtermSIS[, "I"], col="red", lwd=4)
+  lines(times, longtermSIS[,"g"], col="blue", lwd=2)
+  lines(times, longtermSIS[,"s"], col="orange", lwd=2)
+  lines(times, longtermSIS[,"i"], col="red", lwd=2)
+  axis(2, at = c(0.1, 0.5, 1, 5, 10, 50, 100, 500),labels = c("0.1", "0.5","1", "5", "10", "50", "100", "500"),las = 1)   #axe y défini avec texte horizontal
+```
+***Figure 4B et 4C*** 
+```{r, echo=TRUE}
+
+#FIGURE 4B
+  
+  #Conditions initiales (voir description figure 4)
+    betaw<-30
+    beta<-8
+    alpha<-2
+    sigma<-12
+    phi<-0.25
+    e<-0.001
+    f<-0.05
+    a<-0.05
+    d<-0.12 #taux de mortalité par individu
+    gf<-8 #taille critique 
+    c<-4 #taux de fusion
+    Bf<-1  #nombre de femelles reproductrices
+    bf<-3  #nombre de petits par femelle
+    
+  #Solutionner le modèle SIS avec les bons paramètres
+    parms_SIR_invasion<- c(d=d, f=f, gf=gf, c=c, e=e, Bf=Bf, bf=bf, a=a, beta=beta, betaw=betaw, alpha=alpha, sigma=sigma, phi=phi)
+    ic_SIR_invasion<-c(G=50, I=5, g=9, s=9, i=1, r=0.00001, R=0.00001, sR=0.00001, rR=0.000001) #Voir figure 4b temps 0
+    times<- seq(0,5, by=0.1)  
+
+    invasionSIR<- ode(ic_SIR_invasion, times, Modele_SIR, parms_SIR_invasion)
+    
+  #Tracer le graphique 4B
+  poptot<- (invasionSIR[, "G"]*invasionSIR[, "g"]) + (invasionSIR[,"I"]*invasionSIR[,"s"]) + (invasionSIR[,"I"]*invasionSIR[,"i"]) + (invasionSIR[,"I"]*invasionSIR[,"r"]) + (invasionSIR[,"R"]*invasionSIR[,"sR"]) + (invasionSIR[,"R"]* invasionSIR[,"rR"])
+  
+  
+   par(pty="s", pin=c(3,3)) #Pour un graphique carré
+   plot(times, poptot, col="black", lwd=4, type="l", log="y", ylim=c(0.1, 500), xlab="années", ylab="Effectif", main="Modèle SIR : invasion", yaxt="n" )
+  lines(times, invasionSIR[,"G"], col="blue", lwd=4)
+  lines(times, invasionSIR[, "I"], col="red", lwd=4)
+  lines(times, invasionSIR[,"R"], col="green", lwd=4)
+  lines(times, invasionSIR[,"g"], col="blue", lwd=2)
+  lines(times, invasionSIR[,"s"], col="orange", lwd=2)
+  lines(times, invasionSIR[,"i"], col="red", lwd=2)
+  lines(times, invasionSIR[,"sR"], col="purple", lwd=2)
+  lines(times, invasionSIR[,"rR"], col="green", lwd=2)
+  lines(times, invasionSIR[,"r"], col="pink", lwd=2)
+  axis(2, at = c(0.1, 0.5, 1, 5, 10, 50, 100, 500),labels = c("0.1", "0.5","1", "5", "10", "50", "100", "500"),las = 1)   #axe y défini avec texte horizontal
+
+  
+  
+#FIGURE 4D
+  
+  #Changer le temps pour obtenir une figure long terme
+  times<- seq(0,50, by=1)
+  
+  #Solutionner le modèle SIR
+  longtermSIR<- ode(ic_SIR_invasion, times, Modele_SIR, parms_SIR_invasion)
+  
+  #Tracer le graphique 4D
+  poptot<- (longtermSIR[, "G"]*longtermSIR[, "g"]) + (longtermSIR[,"I"]*longtermSIR[,"s"]) + (longtermSIR[,"I"]*longtermSIR[,"i"]) + (longtermSIR[,"I"]*longtermSIR[,"r"]) + (longtermSIR[,"R"]*longtermSIR[,"sR"]) + (longtermSIR[,"R"]* longtermSIR[,"rR"])
+  
+  par(pty="s", pin=c(3,3)) #Pour un graphique carré 
+  plot(times, poptot, col="black", lwd=4, type="l", log="y", ylim=c(0.1, 500), xlab="années", ylab="Effectif", main="Modèle SIR : long terme", yaxt="n" )
+  lines(times, longtermSIR[,"G"], col="blue", lwd=4)
+  lines(times, longtermSIR[, "I"], col="red", lwd=4)
+  lines(times, longtermSIR[,"R"], col="green", lwd=4)
+  lines(times, longtermSIR[,"g"], col="blue", lwd=2)
+  lines(times, longtermSIR[,"s"], col="orange", lwd=2)
+  lines(times, longtermSIR[,"i"], col="red", lwd=2)
+  lines(times, longtermSIR[,"sR"], col="purple", lwd=2)
+  lines(times, longtermSIR[,"rR"], col="green", lwd=2)
+  lines(times, longtermSIR[,"r"], col="pink", lwd=2)
+  axis(2, at = c(0.1, 0.5, 1, 5, 10, 50, 100, 500),labels = c("0.1", "0.5","1", "5", "10", "50", "100", "500"),las = 1)   #axe y défini avec texte horizontal
+  
+
+```
+
+
+***Figure 5***    
+```{r, echo=TRUE}
+######################Problème avec la ligne bleue et rouge pleine#############################
+
+#Conditions initiales - Paramètres
+d <- 0.12 #taux de mortalité par individu
+f <- 0.01 #taux de fission
+gf <- 8 #taille critique 
+c <- 4 #taux de fusion
+e <- 0.001 #taux d'extinction de groupe
+b <- 0.63 #taux de natalité 
+Bf <- 1  #nombre de femelles reproductrices
+bf <- 3  #nombre de petits par femelle
+a <- 0.01 #taux d'agression
+beta <- 9 #taux de transmission entre les groupes G and I
+betaw <- 30 # taux de transmission intragroupe
+alpha <- 1 #mortalité du à la maladie 
+sigma <- 8
+A=2
+
+#Conditions intiales - Variables
+
+g0 = 2 #suscptibles dans un groupe de susceptibles
+s0 = 0.2 #susceptibles dans un groupe d'infectés
+i0 = 0.2 #infectés dans un groupe d'infectés
+G0 = 8 #nombre de groupe susceptible
+I0 = 2 #nombre de groupe infecté
+
+
+
+#Créer un vecteur Allee (c'est avec ce vecteur qu'on construit l'axe des x du graphique 5)
+  Allee<- seq(0, 4, by=0.1)  #durée d'infection pour axe des x 
+  
+#Résultats de même longueur que le vecteur Allee
+  Geq  <- numeric(length(Allee))
+  Ieq  <- numeric(length(Allee))
+  geq  <- numeric(length(Allee))
+  seq <- numeric(length(Allee))
+  inf  <- numeric(length(Allee))
+  ieq  <- numeric(length(Allee))
+
+
+#Paramètres du modèle SIS 
+  parms_SIS<- c(d=d,b=b, f=f, gf=gf, c=c, e=e, Bf=Bf, bf=bf, a=a, A=A, beta=beta, betaw=betaw, alpha=alpha, sigma=sigma)
+  ic<-c(G=G0, I=I0, g=g0, s=s0, i=i0)
+  times<- seq(0,100, by=1)  #long pour permettre d'atteindre l'équilibre 
+
+#Boucle (calculer les paramètres pour chaque valeur de Allee)
+    for(k in seq_along(Allee)){
+      parms_Allee<- parms_SIS
+      parms_Allee["A"] <- Allee[k] 
+   
+      sol<-ode(ic, times, Modele_SIS, parms_Allee) #Résoudre  
+
+  
+    Geq[k]<-tail(sol[,"G"], 1)                           #ligne bleu
+    Ieq[k] <- tail(sol[,"I"], 1)                         #ligne rouge
+    geq[k]<- tail(sol[, "g"], 1)                         #pointillé bleu
+    seq[k]<- tail(sol[, "s"], 1)                         #pointillé mauve
+    inf[k]<- tail(sol[, "i"], 1) + tail(sol[, "s"], 1)   #orange : infectés = i + s
+    ieq[k]<- tail(sol[, "i"], 1)                         #pointillé rouge
+    }
+    
+#Valeurs contrôles - Modèle carnivore  avec Allee
+  
+  #Résultats de même longueur que Allee
+  Ceq<-numeric(length(Allee))      #Nombre de groupe (G) pour le contrôle
+  ceq<-numeric(length(Allee))      # Taille de groupe (g) pour le contrôle
+  
+  
+  #Paramètre du modèle carnivore avec Allee
+  parms_carni_allee<- c(d=d, f=f, gf=gf, c=c, a=a, e=e, Bf=Bf, bf=bf, A=A)
+  ic_carni_allee<- c(g=4, G=6)
+  times<- seq(0, 100, by=1)
+  
+  #Boucle (calculer le controle pour chaque valeur de Allee)
+  for(k in seq_along(Allee)){
+      parms_Allee<- parms_carni_allee
+      parms_Allee["A"] <- Allee[k] 
+   
+      sol<-ode(ic_carni_allee, times, Carnivore_Model_Allee, parms_Allee) #Résoudre 
+      
+      Ceq[k]<- tail(sol[, "G"], 1)                       #ligne verte 
+      ceq[k]<- tail(sol[, "g"], 1)                       #pointillé vert 
+  }
+  
+  
+  
+#Tracer le graphique 5
+    par(pty="s", pin=c(3,3)) #Pour que le graphique soit carré comme dans l'article 
+    plot(Allee, Geq, type="l", col="blue", lwd=2, log="y", ylim=c(0.01,100), xlab="Effet Allee", ylab="Effectif", main="Modèle SIS avec et sans effet Allee",       yaxt="n")
+    axis(2, at=c(0.01, 0.1, 1, 10, 100),    # On reconstruit un axe y ressemblant à celui dans l'article 
+    labels=c("0.01","0.1","1","10","100"), las=1)
+    lines(Allee, Ieq, col="red", lwd=2)
+    lines(Allee, Ceq, col="green", lwd=2)
+    lines(Allee, geq, col="blue", lwd=2, lty=2)
+    lines(Allee, seq, col="purple", lwd=2, lty=2)
+    lines(Allee, inf, col="orange", lwd=2, lty=2)
+    lines(Allee, ieq, col="red", lwd=2, lty=2)
+    lines(Allee, ceq, col="green", lwd=2, lty=2)
+    
+ #Légende 
+legend("bottomleft",
+       legend = c("Nombre de groupes susceptibles",
+                  "Nombre de groupes infectés",
+                  "Nombre de groupes contrôles",
+                  "Taille de groupes susceptibles",
+                  "Taille de groupes infectés",
+                  "Taille de groupes contrôles",
+                  "Nombre de susceptibles de groupes infectés", 
+                  "Infectés"),
+       col = c("blue", "red", "green", "blue", "orange","green", "purple", "red"),
+       lty = c(1, 1, 1, 2, 2, 2, 2, 2),
+       lwd = c(2, 2, 2, 1, 1, 1, 1, 1),
+       bty = "n",
+       cex=0.4)
+```
+
+***Figure 6A***
+```{r, echo=TRUE}
+                           ########################DSOLDA############################################
+
+#Conditions initiales (voir description graphique 6A)
+alpha <- 1
+sigma <- 6
+e <- 0.001
+f <- 0.08
+a <- 0.1
+
+d<- 0.12 #taux de mortalité par individu
+gf<- 8 #taille critique 
+c<- 4 #taux de fusion
+b<- 0.63 #taux de natalité 
+Bf <- 1  #nombre de femelles reproductrices
+bf <- 3  #nombre de petits par femelle
+A<- 0
+
+
+#Conditions intiales - Variables                              ########on peut patenter pour modifier la fin de la courbe 6a
+g0 =  7 #suscptibles dans un groupe de susceptibles
+s0 = 6 #susceptibles dans un groupe d'infectés
+i0 = 1 #infectés dans un groupe d'infectés
+G0 = 5 #nombre de groupe susceptible
+I0 = 1 #nombre de groupe infecté
+
+
+# Créer un vecteur betaw de 0 à 50
+betaw_vec <- seq(0, 50, by = 1)
+
+#Résultats de même longueur que le vecteur betaw
+prev_pop  <- numeric(length(betaw_vec))
+prev_grp  <- numeric(length(betaw_vec))
+prev_intragrp <- numeric(length(betaw_vec))
+
+#Boucle (calculer les variables pour chaque valeur de betaw)
+for(k in seq_along(betaw_vec)) {
+
+    betaw <- betaw_vec[k]    #Pour betaw de 0 à 50
+    beta <- betaw / 4        # beta = betaw/4 (voir description figure 6)
+
+    parms_prev_SIS <- c(alpha=alpha, sigma=sigma, e=e, f=f, a=a, d=d, b=b, gf=gf, c=c, Bf=Bf, bf=bf, A=A, betaw=betaw, beta=beta)
+    ic_prev_SIS<-c(G=G0, I=I0, g=g0, s=s0, i=i0)
+    times<-seq(0,200, by=1)  #long pour atteindre l'équilibre à chaque valeur de betaw
+
+    sol <- ode(ic_prev_SIS, times, Modele_SIS, parms_prev_SIS, method="vode", atol=1e-8, rtol=1e-8, hmax=0.1) #méthod=vode sinon message DLSODA
+    sol[sol<0]<- 0 #enlever les petites valeurs négatives
+    
+
+    # Extraire les variables 
+    G <- sol[,"G"]
+    I <- sol[,"I"]
+    g <- sol[,"g"]
+    i <- sol[,"i"]
+    s <- sol[,"s"]
+
+    # Prévalence  
+    pop_prev <- (i * I) / (G * g + I * (i+s))    #Prévalence population = infectés / population totale
+    grp_prev <- I / (G + I)                      # Prévalence groupes = groupe infectés / total de groupes
+    intragrp_prev <- i / (i+s)                     # Prévalence dans un groupe infecté = infectés dans le groupe / total dans le groupe
+
+    # Pour répondre à la condition : Si la prévalence initiale était la prévalence maximale, la prévalence maximale est fixée à zéro
+     tol <- 1e-6                                   #mini tolérance numérique 
+     
+     #Population
+     prev0_pop  <- pop_prev[1]                     #prévalence au temps 0 
+     max_pop    <- max(pop_prev, na.rm = TRUE)     #prévalence maximale 
+
+     if (max_pop <= prev0_pop + tol) {             #si prévalence max < prévalence initiale + mini jeu de la tolérence -> prévalence = 0
+         prev_pop[k] <- 0 }
+         else {prev_pop[k] <- max_pop }            # si prévalence max > prévalence initiale + mini jeu de la tolérance -> prévalence = prévalence max
+
+
+      # Groupes
+      prev0_grp  <- grp_prev[1]
+      max_grp    <- max(grp_prev, na.rm = TRUE)
+      
+      if (max_grp <= prev0_grp + tol) {
+          prev_grp[k] <- 0 }
+           else { prev_grp[k] <- max_grp }
+
+
+      # Dans un groupe 
+      prev0_intragrp  <- intragrp_prev[1]
+      max_intragrp    <- max(intragrp_prev, na.rm = TRUE)
+
+      if (max_intragrp <= prev0_intragrp + tol) {
+          prev_intragrp[k] <- 0 }
+          else {prev_intragrp[k] <- max_intragrp }
+
+}
+
+# Tracer le graphique 6A
+
+plot(betaw_vec, prev_pop, type="l", lwd=2, col="black",
+     xlab=expression(beta[W]),
+     ylab="Prévalence maximale",
+     ylim=c(0,1), 
+     main="Modèle SIS")
+
+lines(betaw_vec, prev_grp, col="red", lwd=2)
+lines(betaw_vec, prev_intragrp, col="blue", lwd=2)
+
+legend("bottomright",
+       legend=c("Population", "Groupes", "Intragroupe"),
+       col=c("black","red","blue"),
+       lwd=2, bty="n", cex=0.6)
+
+
+```
+***Figure 6B***
+```{r, echo=TRUE}
+
+#Conditions initiales (voir description graphique 6A)
+alpha <- 1
+sigma <- 6
+e <- 0.001
+f <- 0.08
+a <- 0.1
+phi<- 0.5
+
+d<- 0.12 #taux de mortalité par individu
+gf<- 8 #taille critique 
+c<- 4 #taux de fusion
+b<- 0.63 #taux de natalité 
+Bf <- 1  #nombre de femelles reproductrices
+bf <- 3  #nombre de petits par femelle
+A<- 0
+
+
+#Conditions intiales - Variables                              ########on peut patenter pour modifier la fin de la courbe 6b
+G0 = 5 #nombre de groupe susceptible
+I0 = 1 #nombre de groupe infecté
+R0 = 0 #nombre de groupe retiré
+
+g0 =8 #suscptibles dans un groupe de susceptibles
+
+s0 = 8 #susceptibles dans un groupe d'infectés
+i0 = 1 #infectés dans un groupe d'infectés
+r0 <- 0  #retirés dans un groupe d'infectés
+
+sR0<- 8 #susceptibles dans un groupe de retirés
+rR0<- 0  #retirés dans un groupe de retirés 
+
+
+# Créer un vecteur betaw de 0 à 50
+betaw_vec <- seq(0, 50, by = 1)
+
+#Résultats de même longueur que le vecteur betaw
+prev_pop  <- numeric(length(betaw_vec))
+prev_grp  <- numeric(length(betaw_vec))
+prev_intragrp <- numeric(length(betaw_vec))
+seroprev_pop <- numeric(length(betaw_vec))
+seroprev_grp <- numeric(length(betaw_vec))
+seroprev_intragrp <- numeric(length(betaw_vec))
+
+#Boucle (calculer les variables pour chaque valeur de betaw)
+for(k in seq_along(betaw_vec)) {
+
+    betaw <- betaw_vec[k]    #Pour betaw de 0 à 50
+    beta <- betaw / 4        # beta = betaw/4 (voir description figure 6)
+
+    parms_prev_SIR <- c(alpha=alpha, sigma=sigma, e=e, f=f, a=a, d=d, b=b, gf=gf, c=c, Bf=Bf, bf=bf, A=A, betaw=betaw, beta=beta, phi=phi)
+    ic_prev_SIR<-c(G=G0, I=I0, g=g0, s=s0, i=i0, r=r0, R=R0, sR=sR0, rR=rR0)
+    times<-seq(0,200, by=1)  #long pour atteindre l'équilibre à chaque valeur de betaw
+
+    sol <- ode(ic_prev_SIR, times, Modele_SIR, parms_prev_SIR, method="vode", atol=1e-8, rtol=1e-8, hmax=0.1) #méthod=vode sinon message DLSODA
+    sol[sol<0]<- 0 #enlever les petites valeurs négatives
+    
+
+    # Extraire les variables 
+    G <- sol[,"G"]
+    I <- sol[,"I"]
+    R<- sol[,"R"]
+    g <- sol[,"g"]
+    i <- sol[,"i"]
+    s <- sol[,"s"]
+    r <-sol[,"r"]
+    sR <- sol[,"sR"]
+    rR <- sol[,"rR"]
+
+    # Prévalence  
+    pop_prev <- (i*I) / (G * g + I*(i+s+r) + R*(rR+sR))                             #Prévalence population = infectés / population totale
+    grp_prev <- I / (G + I+ R)                                             # Prévalence groupes = groupe infectés / total de groupes
+    intragrp_prev <- i / (i+s+r)                                          # Prévalence intragroupe = infectés dans le groupe / total dans le groupe
+    pop_seroprev <- (i*I + r*I + rR*R) / (G*g + I*(i+s+r) + R*(rR+sR))  #Séroprevalence population = infectés + retirés / population totale 
+    grp_seroprev <- (I + R) / (G + I + R)                               #Séroprévalence groupe = groupe infecté et retirés / total des groupes
+    intragrp_seroprev <- (i+r) / (i+s+r)                                #Séroprévalence intragroupe = infectés et retirés dans un groupe I / total dans                                                                           le groupe I
+    
+
+    # Pour répondre à la condition : Si la prévalence initiale était la prévalence maximale, la prévalence maximale est fixée à zéro
+     tol <- 1e-6                                   #mini tolérance numérique 
+     
+     #Population
+     #-----------------------------------------------
+     prev0_pop  <- pop_prev[1]                     #prévalence au temps 0 
+     max_pop    <- max(pop_prev, na.rm = TRUE)     #prévalence maximale 
+
+     if (max_pop <= prev0_pop + tol) {             #si prévalence max < prévalence initiale + mini jeu de la tolérence -> prévalence = 0
+         prev_pop[k] <- 0 }
+         else {prev_pop[k] <- max_pop }            # si prévalence max > prévalence initiale + mini jeu de la tolérance -> prévalence = prévalence max
+     
+     #-----------------------------------------------
+
+     seroprev0_pop  <- pop_seroprev[1]                     
+     max_popsero    <- max(pop_seroprev, na.rm = TRUE)     
+    
+      if (max_popsero <= seroprev0_pop + tol) {             
+         seroprev_pop[k] <- 0 }
+         else {seroprev_pop[k] <- max_popsero }  
+     
+     #------------------------------------------------
+     
+      # Groupes
+     # -----------------------------------------------
+      prev0_grp  <- grp_prev[1]
+      max_grp    <- max(grp_prev, na.rm = TRUE)
+      
+      if (max_grp <= prev0_grp + tol) {
+          prev_grp[k] <- 0 }
+           else { prev_grp[k] <- max_grp }
+      
+      #-----------------------------------------------
+      
+      seroprev0_grp  <- grp_seroprev[1]
+      max_grpsero    <- max(grp_seroprev, na.rm = TRUE)
+      
+      if (max_grpsero <= seroprev0_grp + tol) {
+          seroprev_grp[k] <- 0 }
+           else { seroprev_grp[k] <- max_grpsero }
+      
+      #-----------------------------------------------
+
+      # Dans un groupe 
+      #-----------------------------------------------
+      prev0_intragrp  <- intragrp_prev[1]
+      max_intragrp    <- max(intragrp_prev, na.rm = TRUE)
+
+      if (max_intragrp <= prev0_intragrp + tol) {
+          prev_intragrp[k] <- 0 }
+          else {prev_intragrp[k] <- max_intragrp }
+     # -----------------------------------------------
+        
+      seroprev0_intragrp  <- intragrp_seroprev[1]
+      max_intragrpsero    <- max(intragrp_seroprev, na.rm = TRUE)
+
+      if (max_intragrpsero <= seroprev0_intragrp + tol) {
+          seroprev_intragrp[k] <- 0 }
+          else {seroprev_intragrp[k] <- max_intragrpsero }
+
+}
+
+# Tracer le graphique 6B
+
+plot(betaw_vec, prev_pop, type="l", lwd=2, col="black",
+     xlab=expression(beta[W]),
+     ylab="Prévalence maximale",
+     ylim=c(0,1), 
+     main="Modèle SIR")
+
+lines(betaw_vec, prev_grp, col="red", lwd=2)
+lines(betaw_vec, prev_intragrp, col="blue", lwd=2)
+lines(betaw_vec, seroprev_pop, col="black", lty=2, lwd=2)
+lines(betaw_vec, seroprev_intragrp, col="blue", lty=2, lwd=2)
+lines(betaw_vec, seroprev_grp, col="red", lty=2, lwd=2)
+
+legend("topleft",
+       legend=c("Population", "Groupes", "Intragroupe", "Séroprévalence"),
+       col=c("black","red","blue","black"),
+       lty = c(1,1,1,2),
+       lwd=2, bty="n", cex=0.6)
+
+
+
+```

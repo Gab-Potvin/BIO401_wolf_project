@@ -1,0 +1,13 @@
+---
+title: "Travail session_test_code"
+output: html_document
+date: "2026-03-03"
+author : "Anomalie statistique" 
+---
+Describe your issue very briefly here. Then show it with a minimal, self-contained example in the following R chunk.
+
+```{r}
+x <- 1
+y <- "2"
+x + y
+```

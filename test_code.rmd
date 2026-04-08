@@ -100,6 +100,21 @@ Graphique1B(func=Core_Model_Dynamics, parms=parms_core)
 **Modèle SIR**
 ```{r, echo=TRUE}
 
+# --- Éléments nécessaires au calcul de g_control (taille de groupe à l'équilibre sans maladie) ---
+Carnivore_Model <- function(t, vars, parms) {
+  with(as.list(c(vars, parms)), {
+    dg <- bf*(g/(Bf+g)) - d*g - (f*g*g/(gf+g))*(d/(c+d)) - (a+e*G)*g
+    dG <- (G*f*g^2*c)/((gf+g)*(c+d)) - a*G - e*G*G
+    res <- c(dg=dg, dG=dG)
+    return(list(res))
+  })
+}
+parms_carni  <- c(d=0.12, f=0.08, gf=8, c=4, a=0.1, e=0.02, Bf=1, bf=3)
+times_ctrl   <- seq(0, 100, by=1)
+sol_control  <- ode(c(g=4, G=3), times_ctrl, Carnivore_Model, parms_carni)
+g_control    <- tail(sol_control[, "g"], 1)
+# ------------------------------------------------------------------------------------------------
+
                                                           ################ PROBLÈME ICI
 #Conditions initiales 
 d<- 0.12 #taux de mortalité par individu
@@ -301,3 +316,85 @@ Modele_SIR <- function(t, x, parms){
        cex= 0.8,
        bty = "n")        
 ```
+
+
+# Suppositions du modèles SIR avec vaccins
+- Le taux de vaccination est identique entre tous individus susceptibles, dans tous les groupes (Probabilité qu'un individu soit vacciné, taux de réussite du vaccin)
+- Le vaccin confère une immunité complète
+- L'immunité conférée par le vaccin est perdue à un taux constant, identique à celui de l'immunité naturelle
+- Le vaccin affecte uniquement les individus susceptibles (pas d'effet sur les individus infectés ou retirés)
+- Le vaccin n'affecte pas les taux de natalité, de mortalité, de fission, de fusion ou d'extinction des groupes sociaux (aucun effet secondaire du vaccin sur la dynamique sociale)
+
+
+### Équation 13 : Susceptibles dans un groupe susceptible (g) - NIVEAU INDIVIDUS :
+
+$$\frac{dg}{dt} = \underbrace{B_f \cdot b_f}_{\substack{\text{naissances} \\ \text{= 3 petits/an}}} - \underbrace{(d + a) g}_{\substack{\text{mort naturelle} \\ \text{+ agression}}} - \underbrace{\frac{f g^2}{(g_f + g) \cdot \frac{d}{c+d}}}_{\substack{\text{individus qui quittent} \\ \text{le groupe par fission}}} - \underbrace{e \cdot g \cdot (G + I + R)}_{\substack{\text{extinction du groupe} \\ \text{(densité-dépendante)}}}$$
+
+
+**Éq. 13 modifiée** (susceptibles dans groupe susceptible) :
+$$\frac{dg}{dt} = B_f b_f - (d + a + \nu) \cdot g - \frac{f g^2}{(g_f+g)\frac{d}{c+d}} - e \cdot g(G+I+R)$$
+
+Le terme $\nu \cdot g$ est ajouté : des susceptibles sont vaccinés et quittent $g$.
+
+
+### Équation 14 : Susceptibles dans un groupe d'infectés (s) - NIVEAU INDIVIDUS :
+
+$$\frac{ds}{dt} = \underbrace{B_f b_f \frac{s+r}{\tau + s + r}}_{\substack{\text{naissances} \\ \text{(infectés exclus)}}} - \underbrace{(d+a) s}_{\text{mort + agression}} + \underbrace{\phi \cdot r}_{\substack{\text{rétablis qui} \\ \text{reperdent immunité}}} - \underbrace{\frac{s \cdot f(s+i+r)}{(g_f+s+i+r)\frac{d}{c+d}}}_{\text{fission}} - \underbrace{e \cdot s(G+I+R)}_{\text{extinction}} - \underbrace{\frac{\beta_w \cdot s \cdot i}{1+s+i+r}}_{\substack{\text{INFECTION} \\ \text{(fréquence-dépendante)}}}$$
+
+
+**Éq. 14 modifiée** (susceptibles dans groupe infecté) :
+$$\frac{ds}{dt} = B_f b_f \frac{s+r}{0.001+s+r} - (d+a+\nu) \cdot s + \phi \cdot r - \frac{s f(s+i+r)}{(g_f+s+i+r)\frac{d}{c+d}} - e \cdot s(G+I+R) - \frac{\beta_w s i}{1+s+i+r}$$
+
+
+### Équation 15 : Infectés dans un groupe d'infectés (i) - NIVEAU INDIVIDUS :
+
+$$\frac{di}{dt} = \underbrace{\frac{\beta_w \cdot s \cdot i}{1+s+i+r}}_{\substack{\text{nouvelles infections} \\ \text{(= entrées)}}} - \underbrace{(d + \sigma + \alpha + a) \cdot i}_{\substack{\text{mort naturelle + guérison} \\ \text{+ mort maladie + agression}}} - \underbrace{e \cdot i \cdot (G+I+R)}_{\text{extinction}}$$
+
+
+### Équation 16 : Retirés dans un groupe d'infectés (r) - NIVEAU INDIVIDUS :
+
+$$\frac{dr}{dt} = \underbrace{\sigma \cdot i}_{\substack{\text{infectés qui} \\ \text{guérissent}}} - \underbrace{(d + \phi + a) \cdot r}_{\substack{\text{mort + perte} \\ \text{immunité + agression}}} - \underbrace{\frac{r \cdot f(s+i+r)}{(g_f+s+i+r)\frac{d}{c+d}}}_{\text{fission}} - \underbrace{e \cdot r(G+I+R)}_{\text{extinction}}$$
+
+
+**Éq. 16 modifiée** (rétablis dans groupe infecté) — on recoit les vaccinés :
+$$\frac{dr}{dt} = \sigma i + \nu \cdot s - (d + \phi + a) r - \frac{r f(s+i+r)}{(g_f+s+i+r)\frac{d}{c+d}} - e \cdot r(G+I+R)$$
+
+
+
+### Équation 17 : Susceptibles dans un groupe de retirés (sR) - NIVEAU INDIVIDUS :
+
+$$\frac{ds_R}{dt} = \underbrace{B_f b_f \frac{s_R+r_R}{\tau+s_R+r_R}}_{\text{naissances}} - \underbrace{(d+a) s_R}_{\text{mort + agression}} + \underbrace{\phi \cdot r_R}_{\substack{\text{rétablis qui} \\ \text{reperdent immunité}}} - \underbrace{\frac{(s_R+r_R) f \cdot s_R}{(g_f+s_R+r_R)\frac{d}{c+d}}}_{\text{fission}} - \underbrace{e \cdot s_R(G+I+R)}_{\text{extinction}}$$
+
+
+**Éq. 17 modifiée** (susceptibles dans groupe rétabli) :
+$$\frac{ds_R}{dt} = B_f b_f \frac{s_R+r_R}{0.001+s_R+r_R} - (d+a+\nu) s_R + \phi r_R - \frac{(s_R+r_R) f s_R}{(g_f+s_R+r_R)\frac{d}{c+d}} - e \cdot s_R(G+I+R)$$
+
+
+
+### Équation 18 : Retirés dans un groupe de retirés (rR) - NIVEAU INDIVIDUS :
+
+$$\frac{dr_R}{dt} = \underbrace{\frac{\sigma \cdot i}{1+i}}_{\substack{\text{individus guéris} \\ \text{transférés de I vers R}}} - \underbrace{(d + \phi + a) r_R}_{\substack{\text{mort + perte} \\ \text{immunité + agression}}} - \underbrace{\frac{(s_R+r_R) r_R f}{(g_f+s_R+r_R)\frac{d}{c+d}}}_{\text{fission}} - \underbrace{e \cdot r_R(G+I+R)}_{\text{extinction}}$$
+
+
+**Éq. 18 modifiée** (rétablis dans groupe rétabli) :
+$$\frac{dr_R}{dt} = \frac{\sigma i}{1+i} + \nu \cdot s_R - (d + \phi + a) r_R - \frac{(s_R+r_R) r_R f}{(g_f+s_R+r_R)\frac{d}{c+d}} - e \cdot r_R(G+I+R)$$
+
+
+
+### Équation 19 : Groupes susceptibles (G) - NIVEAU GROUPES
+
+$$\frac{dG}{dt} = \underbrace{\frac{G \cdot c \cdot f \cdot g^2}{(g_f+g)(d+c)}}_{\substack{\text{fission crée} \\ \text{de nouveaux groupes G}}} - \underbrace{a \cdot G}_{\text{agression}} - \underbrace{e \cdot G(G+I+R)}_{\substack{\text{extinction} \\ \text{(densité-dépendante)}}} + \underbrace{\frac{R \cdot \phi}{1+r_R}}_{\substack{\text{groupe R redevient G} \\ \text{(perte d'immunité)}}} - \underbrace{\frac{\beta \cdot I \cdot G}{G+I+R}}_{\substack{\text{groupe G infecté} \\ \text{par un groupe I}}}$$
+
+
+
+### Équation 20 : Groupes infectés (I) - NIVEAU GROUPES
+
+$$\frac{dI}{dt} = \underbrace{\frac{\beta \cdot I \cdot \left(G + R \frac{s_R}{s_R+r_R}\right)}{G+I+R}}_{\substack{\text{infection de groupes G} \\ \text{et de groupes R (partiellement)}}} - \underbrace{a \cdot I}_{\text{agression}} - \underbrace{e \cdot I(G+I+R)}_{\text{extinction}} - \underbrace{\frac{I(\alpha+\sigma)}{1+i}}_{\substack{\text{le groupe guérit} \\ \text{(passe en R)}}}$$
+
+
+### Équation 21 : Groupes retirés (R) - NIVEAU GROUPES
+
+$$\frac{dR}{dt} = \underbrace{\frac{I \cdot \sigma}{1+i}}_{\substack{\text{groupe I guérit} \\ \text{→ devient R}}} + \underbrace{\frac{c f R(s_R+r_R)^2}{(g_f+s_R+r_R)(c+d)}}_{\text{fission crée des groupes R}} - \underbrace{a R}_{\text{agression}} - \underbrace{e R(G+I+R)}_{\text{extinction}} - \underbrace{\frac{R \phi}{1+r_R}}_{\substack{\text{le groupe R} \\ \text{redevient G}}} - \underbrace{\frac{\beta I R \frac{s_R}{s_R+r_R}}{G+I+R}}_{\substack{\text{réinfection du} \\ \text{groupe R → I}}}$$
+
+
+
